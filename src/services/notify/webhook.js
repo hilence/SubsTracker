@@ -35,33 +35,38 @@ function applyTemplate(template, data) {
 /**
  * 将 content 字符串中的空格分隔的 "字段名: 值" 转换为多行显示。
  * 例如： "类型: 其他 金额: £0.05/周期 ..." -> "类型: 其他\n金额: £0.05/周期\n..."
+ * 如果第一个 token 不是键值对（不以冒号结尾），则视为标题，单独成行。
  */
 function formatContentToLines(content) {
   if (!content || typeof content !== 'string') return content;
-  // 按空格分割
+
   const parts = content.split(/\s+/);
   const lines = [];
   let currentLine = [];
 
+  // 处理第一个 token：如果它不是键（不以冒号结尾），则单独作为标题行
+  if (parts.length > 0 && !parts[0].endsWith(':')) {
+    lines.push(parts[0]);
+    parts.shift(); // 移除已处理的标题
+  }
+
+  // 剩余部分按键值对处理
   for (let i = 0; i < parts.length; i++) {
     const token = parts[i];
-    // 如果 token 以冒号结尾（如 "类型:"），则认为是一个新字段的开始
     if (token.endsWith(':')) {
-      // 保存之前累积的行
       if (currentLine.length > 0) {
         lines.push(currentLine.join(' '));
         currentLine = [];
       }
       currentLine.push(token);
     } else {
-      // 否则作为当前字段的值的一部分
       currentLine.push(token);
     }
   }
-  // 保存最后一行
   if (currentLine.length > 0) {
     lines.push(currentLine.join(' '));
   }
+
   return lines.join('\n');
 }
 
