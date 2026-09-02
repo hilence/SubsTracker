@@ -9,7 +9,11 @@ import { formatLocalDate } from '../../core/time.js';
 
 /**
  * 递归替换模板对象中的所有 {{key}} 占位符。
- * 保留原始数据类型，换行符不会被二次转义。
+ * 保留原始数据类型（字符串、数字等），换行符等特殊字符不会被二次转义。
+ *
+ * @param {any} template   - 模板对象（已解析的 JSON）
+ * @param {Record<string,any>} data  - 用于替换的数据
+ * @returns {any} 替换后的新对象
  */
 function applyTemplate(template, data) {
   if (typeof template === 'string') {
@@ -34,53 +38,45 @@ function applyTemplate(template, data) {
 }
 
 /**
- * 将 content 转换为多行显示。
- * 使用字段名白名单，避免误匹配值中的冒号。
+ * 将 content 字符串转换为多行显示。
+ * 这是一个简化版本，适用于 "字段名: 值" 格式。
+ * 如果值内部包含冒号，不会误分割。
+ *
+ * @param {string} content
+ * @returns {string}
  */
 function formatContentToLines(content) {
   if (!content || typeof content !== 'string') return content;
 
-  // 只识别这些固定的字段名（根据你的实际数据调整）
-  const fieldNames = [
-    '类型', '分类', '日历类型', '到期日期',
-    '自动续期', '备注', '发送时间', '当前时区'
-  ];
-
-  const pattern = `(${fieldNames.join('|')})[:：]\\s*`;
-  const regex = new RegExp(pattern, 'g');
-
-  const matches = [];
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    matches.push({
-      key: match[1],
-      index: match.index,
-      end: regex.lastIndex
-    });
-  }
-
-  if (matches.length === 0) {
-    return content;
-  }
-
-  // 提取标题（第一个字段之前的内容）
-  const firstMatch = matches[0];
-  let title = content.substring(0, firstMatch.index).trim();
+  // 按空格分割，但保留带空格的字段值（如备注中的内容）
+  // 我们通过遍历 token，以 "字段名:" 为分隔符来组织行
+  const tokens = content.split(/\s+/);
   const lines = [];
-  if (title) lines.push(title);
+  let currentLine = [];
 
-  // 处理每个字段
-  for (let i = 0; i < matches.length; i++) {
-    const current = matches[i];
-    const next = matches[i + 1];
-    const start = current.index + current.key.length + 1;
-    const end = next ? next.index : content.length;
-    let value = content.substring(start, end).trim();
-    // 去除可能多余的前导冒号
-    if (value.startsWith(':') || value.startsWith('：')) {
-      value = value.substring(1).trim();
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    // 如果 token 以冒号结尾（英文或中文），则作为新字段的开始
+    if (/[:：]$/.test(token)) {
+      // 保存之前累积的行
+      if (currentLine.length > 0) {
+        lines.push(currentLine.join(' '));
+        currentLine = [];
+      }
+      currentLine.push(token);
+    } else {
+      // 否则作为当前字段的值的一部分
+      currentLine.push(token);
     }
-    lines.push(`${current.key}: ${value}`);
+  }
+  // 保存最后一行
+  if (currentLine.length > 0) {
+    lines.push(currentLine.join(' '));
+  }
+
+  // 如果最终 lines 少于 2，说明没有找到任何字段分隔符，原样返回
+  if (lines.length <= 1) {
+    return content;
   }
 
   return lines.join('\n');
@@ -88,6 +84,9 @@ function formatContentToLines(content) {
 
 /**
  * 构造可供模板替换的变量集合。
+ *
+ * @param {import('./channel.js').ChannelPayload} payload
+ * @param {any} config
  */
 function buildTemplateData(payload, config) {
   const tagsArray = Array.isArray(payload.metadata?.tags)
@@ -107,7 +106,12 @@ function buildTemplateData(payload, config) {
     .filter((s) => s && s.trim().length > 0)
     .join('\n\n');
 
-  const contentLines = formatContentToLines(payload.content);
+  // 生成多行版本的 content，并替换换行符为 <br>（兼容钉钉 Markdown）
+  const rawContentLines = formatContentToLines(payload.content);
+  // 如果原始 content 没有空格分隔的字段，而是已经包含换行符，我们直接使用原始 content 并替换换行符
+  const contentLines = rawContentLines.includes('\n')
+    ? rawContentLines.replace(/\n/g, '<br>')
+    : payload.content.replace(/\n/g, '<br>');
 
   return {
     title: payload.title,
@@ -118,7 +122,8 @@ function buildTemplateData(payload, config) {
     timestamp,
     formattedMessage,
     message: formattedMessage,
-    contentLines,
+    contentLines, // 已替换换行符为 <br>，用于钉钉 Markdown
+    // 扩展字段
     daysRemaining: payload.metadata?.daysRemaining ?? '',
     ruleType: payload.metadata?.ruleType ?? '',
     ruleValue: payload.metadata?.ruleValue ?? ''
