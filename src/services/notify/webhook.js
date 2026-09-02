@@ -10,20 +10,15 @@ import { formatLocalDate } from '../../core/time.js';
 /**
  * 递归替换模板对象中的所有 {{key}} 占位符。
  * 保留原始数据类型（字符串、数字等），换行符等特殊字符不会被二次转义。
- *
- * @param {any} template   - 模板对象（已解析的 JSON）
- * @param {Record<string,any>} data  - 用于替换的数据
- * @returns {any} 替换后的新对象
  */
 function applyTemplate(template, data) {
   if (typeof template === 'string') {
-    // 替换字符串中的占位符
     return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => {
       if (Object.prototype.hasOwnProperty.call(data, key)) {
         const val = data[key];
         return val != null ? String(val) : '';
       }
-      return ''; // 未找到的占位符替换为空字符串
+      return '';
     });
   } else if (Array.isArray(template)) {
     return template.map(item => applyTemplate(item, data));
@@ -34,43 +29,52 @@ function applyTemplate(template, data) {
     }
     return result;
   } else {
-    // 基本类型（number, boolean, null 等）直接返回
     return template;
   }
 }
 
 /**
- * 将 content 字符串中的空格分隔的 "字段名: 值" 转换为多行显示。
- * 如果第一个 token 不是键值对（不以冒号结尾），则视为标题，单独成行。
+ * 将 content 字符串中的 "字段名: 值" 转换为多行显示。
+ * 支持中文和英文冒号，正确提取每个字段的值（值中可包含空格）。
  */
 function formatContentToLines(content) {
   if (!content || typeof content !== 'string') return content;
 
-  const parts = content.split(/\s+/);
+  // 匹配字段名（中英文）后跟中文或英文冒号
+  const regex = /([\u4e00-\u9fa5a-zA-Z]+)[:：]\s*/g;
+  const matches = [];
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    matches.push({
+      key: match[1],
+      index: match.index,
+      end: regex.lastIndex
+    });
+  }
+
+  if (matches.length === 0) {
+    // 没有匹配到任何字段名，原样返回
+    return content;
+  }
+
+  // 提取标题（第一个字段之前的内容）
+  const firstMatch = matches[0];
+  let title = content.substring(0, firstMatch.index).trim();
   const lines = [];
-  let currentLine = [];
+  if (title) lines.push(title);
 
-  // 处理第一个 token：如果它不是键（不以冒号结尾），则单独作为标题行
-  if (parts.length > 0 && !parts[0].endsWith(':')) {
-    lines.push(parts[0]);
-    parts.shift(); // 移除已处理的标题
-  }
-
-  // 剩余部分按键值对处理
-  for (let i = 0; i < parts.length; i++) {
-    const token = parts[i];
-    if (token.endsWith(':')) {
-      if (currentLine.length > 0) {
-        lines.push(currentLine.join(' '));
-        currentLine = [];
-      }
-      currentLine.push(token);
-    } else {
-      currentLine.push(token);
-    }
-  }
-  if (currentLine.length > 0) {
-    lines.push(currentLine.join(' '));
+  // 处理每个字段
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    // 值的起始位置：字段名 + 冒号之后
+    const start = current.index + current.key.length + 1; // 跳过冒号
+    // 值的结束位置：下一个字段的起始位置 或 字符串末尾
+    const end = next ? next.index : content.length;
+    let value = content.substring(start, end).trim();
+    // 去除可能多余的前导冒号（如果有）
+    if (value.startsWith(':') || value.startsWith('：')) value = value.substring(1).trim();
+    lines.push(`${current.key}: ${value}`);
   }
 
   return lines.join('\n');
@@ -78,9 +82,6 @@ function formatContentToLines(content) {
 
 /**
  * 构造可供模板替换的变量集合。
- *
- * @param {import('./channel.js').ChannelPayload} payload
- * @param {any} config
  */
 function buildTemplateData(payload, config) {
   const tagsArray = Array.isArray(payload.metadata?.tags)
@@ -100,7 +101,6 @@ function buildTemplateData(payload, config) {
     .filter((s) => s && s.trim().length > 0)
     .join('\n\n');
 
-  // 新增：将 content 转换为多行格式
   const contentLines = formatContentToLines(payload.content);
 
   return {
@@ -112,9 +112,7 @@ function buildTemplateData(payload, config) {
     timestamp,
     formattedMessage,
     message: formattedMessage,
-    // 新增的变量，供模板使用
     contentLines,
-    // 扩展字段，便于规则化模板
     daysRemaining: payload.metadata?.daysRemaining ?? '',
     ruleType: payload.metadata?.ruleType ?? '',
     ruleValue: payload.metadata?.ruleValue ?? ''
