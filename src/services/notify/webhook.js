@@ -8,28 +8,35 @@ import { ok, fail, errorMessage } from './channel.js';
 import { formatLocalDate } from '../../core/time.js';
 
 /**
- * 把 value 转成可嵌入 JSON 字符串的安全片段。
+ * 递归替换模板对象中的所有 {{key}} 占位符。
+ * 保留原始数据类型（字符串、数字等），换行符等特殊字符不会被二次转义。
  *
- * @param {any} value
- */
-function escapeForJsonString(value) {
-  if (value === null || value === undefined) return '';
-  return JSON.stringify(String(value)).slice(1, -1);
-}
-
-/**
- * @param {any} template
- * @param {Record<string,any>} data
+ * @param {any} template   - 模板对象（已解析的 JSON）
+ * @param {Record<string,any>} data  - 用于替换的数据
+ * @returns {any} 替换后的新对象
  */
 function applyTemplate(template, data) {
-  const templateString = JSON.stringify(template);
-  const replaced = templateString.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => {
-    if (Object.prototype.hasOwnProperty.call(data, key)) {
-      return escapeForJsonString(data[key]);
+  if (typeof template === 'string') {
+    // 替换字符串中的占位符
+    return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        const val = data[key];
+        return val != null ? String(val) : '';
+      }
+      return ''; // 未找到的占位符替换为空字符串
+    });
+  } else if (Array.isArray(template)) {
+    return template.map(item => applyTemplate(item, data));
+  } else if (template && typeof template === 'object') {
+    const result = {};
+    for (const [key, value] of Object.entries(template)) {
+      result[key] = applyTemplate(value, data);
     }
-    return '';
-  });
-  return JSON.parse(replaced);
+    return result;
+  } else {
+    // 基本类型（number, boolean, null 等）直接返回
+    return template;
+  }
 }
 
 /**
