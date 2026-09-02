@@ -9,7 +9,7 @@ import { formatLocalDate } from '../../core/time.js';
 
 /**
  * 递归替换模板对象中的所有 {{key}} 占位符。
- * 保留原始数据类型（字符串、数字等），换行符等特殊字符不会被二次转义。
+ * 保留原始数据类型，换行符不会被二次转义。
  */
 function applyTemplate(template, data) {
   if (typeof template === 'string') {
@@ -34,14 +34,21 @@ function applyTemplate(template, data) {
 }
 
 /**
- * 将 content 字符串中的 "字段名: 值" 转换为多行显示。
- * 支持中文和英文冒号，正确提取每个字段的值（值中可包含空格）。
+ * 将 content 转换为多行显示。
+ * 使用字段名白名单，避免误匹配值中的冒号。
  */
 function formatContentToLines(content) {
   if (!content || typeof content !== 'string') return content;
 
-  // 匹配字段名（中英文）后跟中文或英文冒号
-  const regex = /([\u4e00-\u9fa5a-zA-Z]+)[:：]\s*/g;
+  // 只识别这些固定的字段名（根据你的实际数据调整）
+  const fieldNames = [
+    '类型', '分类', '日历类型', '到期日期',
+    '自动续期', '备注', '发送时间', '当前时区'
+  ];
+
+  const pattern = `(${fieldNames.join('|')})[:：]\\s*`;
+  const regex = new RegExp(pattern, 'g');
+
   const matches = [];
   let match;
   while ((match = regex.exec(content)) !== null) {
@@ -53,7 +60,6 @@ function formatContentToLines(content) {
   }
 
   if (matches.length === 0) {
-    // 没有匹配到任何字段名，原样返回
     return content;
   }
 
@@ -67,13 +73,13 @@ function formatContentToLines(content) {
   for (let i = 0; i < matches.length; i++) {
     const current = matches[i];
     const next = matches[i + 1];
-    // 值的起始位置：字段名 + 冒号之后
-    const start = current.index + current.key.length + 1; // 跳过冒号
-    // 值的结束位置：下一个字段的起始位置 或 字符串末尾
+    const start = current.index + current.key.length + 1;
     const end = next ? next.index : content.length;
     let value = content.substring(start, end).trim();
-    // 去除可能多余的前导冒号（如果有）
-    if (value.startsWith(':') || value.startsWith('：')) value = value.substring(1).trim();
+    // 去除可能多余的前导冒号
+    if (value.startsWith(':') || value.startsWith('：')) {
+      value = value.substring(1).trim();
+    }
     lines.push(`${current.key}: ${value}`);
   }
 
