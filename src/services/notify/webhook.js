@@ -41,7 +41,6 @@ function applyTemplate(template, data) {
 
 /**
  * 将 content 字符串中的空格分隔的 "字段名: 值" 转换为多行显示。
- * 例如： "类型: 其他 金额: £0.05/周期 ..." -> "类型: 其他\n金额: £0.05/周期\n..."
  * 如果第一个 token 不是键值对（不以冒号结尾），则视为标题，单独成行。
  */
 function formatContentToLines(content) {
